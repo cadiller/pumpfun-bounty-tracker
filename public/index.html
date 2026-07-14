@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Bounty Watch — pump.fun bounty tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="masthead">
+      <div class="masthead-top">
+        <span class="eyebrow">BOUNTY WATCH</span>
+        <button id="telegram-btn" class="tg-btn">Connect Telegram</button>
+      </div>
+      <h1>Track a bounty past the finish line.</h1>
+      <p class="sub">
+        Paste a pump.fun bounty link. We watch it after the clock runs out — through
+        judging, ruling, and payout — and message you the moment it moves.
+      </p>
+
+      <form id="add-form" class="add-form">
+        <input
+          id="url-input"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          placeholder="https://pump.fun/go/&hellip;"
+          required
+        />
+        <button type="submit">Track it</button>
+      </form>
+      <p id="form-error" class="form-error" hidden></p>
+    </header>
+
+    <section class="manifest">
+      <div class="manifest-head">
+        <span>MANIFEST</span>
+        <span id="count">0 tracked</span>
+      </div>
+      <div id="empty" class="empty">
+        Nothing tracked yet. Paste a bounty link above to open a line on the manifest.
+      </div>
+      <ol id="list" class="list"></ol>
+    </section>
+  </div>
+
+  <template id="card-template">
+    <li class="card">
+      <div class="rail">
+        <span class="stop" data-stop="open">OPEN</span>
+        <span class="stop" data-stop="ended">ENDED</span>
+        <span class="stop" data-stop="ruled">RULED</span>
+        <span class="stop" data-stop="paid">PAID</span>
+      </div>
+      <div class="card-body">
+        <div class="card-top">
+          <a class="title" href="#" target="_blank" rel="noopener"></a>
+          <span class="status-pill"></span>
+        </div>
+        <p class="summary"></p>
+        <div class="card-meta">
+          <span class="deadline"></span>
+          <span class="checked"></span>
+        </div>
+        <div class="card-actions">
+          <button class="refresh">Check now</button>
+          <button class="bell">Notify me</button>
+        </div>
+      </div>
+    </li>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>
