@@ -23,7 +23,8 @@
       <h1>Track a bounty past the finish line.</h1>
       <p class="sub">
         Paste a pump.fun bounty link. We watch it after the clock runs out — through
-        judging, ruling, and payout — and message you the moment it moves.
+        submissions closing, decision, dispute window, and payout — and message you
+        the moment it moves.
       </p>
 
       <form id="add-form" class="add-form">
@@ -50,15 +51,28 @@
       </div>
       <ol id="list" class="list"></ol>
     </section>
+
+    <section class="manifest discover-section">
+      <div class="manifest-head">
+        <span>NEW BOUNTIES</span>
+        <button id="new-bounty-toggle" class="mini-toggle">Alert me</button>
+      </div>
+      <p class="discover-note">
+        Bounties we've spotted that you're not tracking yet. Discovery is experimental —
+        pump.fun doesn't publish a public feed of new bounties, so this list may be sparse.
+      </p>
+      <div id="discover-empty" class="empty">Nothing new spotted yet.</div>
+      <ol id="discover-list" class="list"></ol>
+    </section>
   </div>
 
   <template id="card-template">
     <li class="card">
       <div class="rail">
-        <span class="stop" data-stop="open">OPEN</span>
-        <span class="stop" data-stop="ended">ENDED</span>
-        <span class="stop" data-stop="ruled">RULED</span>
-        <span class="stop" data-stop="paid">PAID</span>
+        <span class="stop" data-stop="live">LIVE</span>
+        <span class="stop" data-stop="review">REVIEW</span>
+        <span class="stop" data-stop="dispute">DISPUTE</span>
+        <span class="stop" data-stop="done">DONE</span>
       </div>
       <div class="card-body">
         <div class="card-top">
@@ -73,6 +87,22 @@
         <div class="card-actions">
           <button class="refresh">Check now</button>
           <button class="bell">Notify me</button>
+          <button class="delete" title="Stop tracking">Delete</button>
+        </div>
+      </div>
+    </li>
+  </template>
+
+  <template id="discover-card-template">
+    <li class="card discover-card">
+      <div class="card-body">
+        <div class="card-top">
+          <a class="title" href="#" target="_blank" rel="noopener"></a>
+          <span class="status-pill"></span>
+        </div>
+        <p class="summary"></p>
+        <div class="card-actions">
+          <button class="track-btn">Track it</button>
         </div>
       </div>
     </li>

@@ -1,10 +1,38 @@
-// If opened inside Telegram as a Mini App, expand to full height.
-if (window.Telegram?.WebApp) {
-  window.Telegram.WebApp.ready();
-  window.Telegram.WebApp.expand();
+// If opened inside Telegram as a Mini App, expand to full height and use
+// Telegram's signed initData to identify the user securely (no linking
+// needed - this is what fixes bounties leaking across different accounts).
+const tgWebApp = window.Telegram?.WebApp;
+const TG_INIT_DATA = tgWebApp?.initData || null;
+if (tgWebApp) {
+  tgWebApp.ready();
+  tgWebApp.expand();
 }
 
-const STAGES = ["open", "ended", "ruled", "paid"];
+const STAGE_GROUP = {
+  live: "live",
+  submissions_closed: "review",
+  decision_posted: "review",
+  dispute_window: "dispute",
+  finalizing_payout: "dispute",
+  claimable: "done",
+  paid: "done",
+  closed_no_winner: "done",
+  closed: "done",
+  unknown: "live",
+};
+const STAGE_ORDER = ["live", "review", "dispute", "done"];
+const STAGE_LABEL = {
+  live: "LIVE",
+  submissions_closed: "SUBMISSIONS CLOSED",
+  decision_posted: "DECISION POSTED",
+  dispute_window: "DISPUTE WINDOW",
+  finalizing_payout: "FINALIZING PAYOUT",
+  claimable: "CLAIMABLE",
+  paid: "PAID",
+  closed_no_winner: "CLOSED",
+  closed: "CLOSED",
+  unknown: "UNKNOWN",
+};
 
 const form = document.getElementById("add-form");
 const input = document.getElementById("url-input");
@@ -15,19 +43,18 @@ const count = document.getElementById("count");
 const template = document.getElementById("card-template");
 const tgBtn = document.getElementById("telegram-btn");
 
-async function api(path, options) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+const discoverList = document.getElementById("discover-list");
+const discoverEmpty = document.getElementById("discover-empty");
+const discoverTemplate = document.getElementById("discover-card-template");
+const newBountyToggle = document.getElementById("new-bounty-toggle");
+
+async function api(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (TG_INIT_DATA) headers["X-Telegram-Init-Data"] = TG_INIT_DATA;
+  const res = await fetch(path, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
-}
-
-function stageIndex(status) {
-  const i = STAGES.indexOf(status);
-  return i === -1 ? (status === "closed" ? 1 : -1) : i;
 }
 
 function timeAgo(iso) {
@@ -46,7 +73,8 @@ function renderCard(bounty) {
   const li = node.querySelector(".card");
   li.dataset.id = bounty.id;
 
-  const idx = stageIndex(bounty.status);
+  const group = STAGE_GROUP[bounty.stage] || "live";
+  const idx = STAGE_ORDER.indexOf(group);
   node.querySelectorAll(".stop").forEach((el, i) => {
     el.classList.toggle("lit", i <= idx);
     el.classList.toggle("current", i === idx);
@@ -57,23 +85,22 @@ function renderCard(bounty) {
   titleEl.href = bounty.url;
 
   const pill = node.querySelector(".status-pill");
-  pill.textContent = (bounty.status || "unknown").toUpperCase();
-  pill.dataset.status = bounty.status;
+  pill.textContent = STAGE_LABEL[bounty.stage] || (bounty.stage || "unknown").toUpperCase();
+  pill.dataset.status = bounty.stage;
 
   node.querySelector(".summary").textContent = bounty.raw_summary || "No summary available yet.";
   node.querySelector(".deadline").textContent = bounty.deadline_text || "\u2014";
   node.querySelector(".checked").textContent = timeAgo(bounty.last_checked_at);
 
   const bell = node.querySelector(".bell");
-  bell.classList.toggle("active", Boolean(bounty.subscribed));
-  bell.textContent = bounty.subscribed ? "Notifying \u2713" : "Notify me";
+  bell.classList.toggle("active", Boolean(bounty.notify));
+  bell.textContent = bounty.notify ? "Notifying \u2713" : "Notify me";
   bell.addEventListener("click", async () => {
     try {
-      if (bell.classList.contains("active")) {
-        await api(`/api/bounties/${bounty.id}/unsubscribe`, { method: "POST" });
-      } else {
-        await api(`/api/bounties/${bounty.id}/subscribe`, { method: "POST" });
-      }
+      await api(`/api/bounties/${bounty.id}/notify`, {
+        method: "POST",
+        body: JSON.stringify({ notify: !bounty.notify }),
+      });
       await load();
     } catch (err) {
       alert(err.message);
@@ -93,6 +120,16 @@ function renderCard(bounty) {
     }
   });
 
+  node.querySelector(".delete").addEventListener("click", async () => {
+    if (!confirm("Stop tracking this bounty? This removes it everywhere - site, Mini App, and bot.")) return;
+    try {
+      await api(`/api/bounties/${bounty.id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   return node;
 }
 
@@ -103,6 +140,64 @@ async function load() {
   count.textContent = `${bounties.length} tracked`;
   for (const b of bounties) list.appendChild(renderCard(b));
 }
+
+function renderDiscoverCard(bounty) {
+  const node = discoverTemplate.content.cloneNode(true);
+  const titleEl = node.querySelector(".title");
+  titleEl.textContent = bounty.title || bounty.id;
+  titleEl.href = bounty.url;
+
+  const pill = node.querySelector(".status-pill");
+  pill.textContent = STAGE_LABEL[bounty.stage] || (bounty.stage || "unknown").toUpperCase();
+  pill.dataset.status = bounty.stage;
+
+  node.querySelector(".summary").textContent = bounty.raw_summary || "No summary available yet.";
+
+  node.querySelector(".track-btn").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Tracking\u2026";
+    try {
+      await api("/api/bounties", { method: "POST", body: JSON.stringify({ url: bounty.url }) });
+      await load();
+      await loadDiscover();
+    } catch (err) {
+      alert(err.message);
+      e.target.disabled = false;
+      e.target.textContent = "Track it";
+    }
+  });
+
+  return node;
+}
+
+async function loadDiscover() {
+  try {
+    const bounties = await api("/api/discover");
+    discoverList.innerHTML = "";
+    discoverEmpty.hidden = bounties.length > 0;
+    for (const b of bounties) discoverList.appendChild(renderDiscoverCard(b));
+  } catch (_) {
+    /* discovery is best-effort; fail quietly */
+  }
+}
+
+async function refreshNewBountyToggle() {
+  try {
+    const { subscribed } = await api("/api/new-bounties/status");
+    newBountyToggle.classList.toggle("on", subscribed);
+    newBountyToggle.textContent = subscribed ? "Alerting \u2713" : "Alert me";
+  } catch (_) {}
+}
+
+newBountyToggle.addEventListener("click", async () => {
+  const isOn = newBountyToggle.classList.contains("on");
+  try {
+    await api(`/api/new-bounties/${isOn ? "unsubscribe" : "subscribe"}`, { method: "POST" });
+    await refreshNewBountyToggle();
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -131,16 +226,13 @@ async function refreshTelegramButton() {
       tgBtn.classList.add("connected");
       tgBtn.onclick = null;
     }
-  } catch (_) {
-    /* endpoint not configured yet - leave default button state */
-  }
+  } catch (_) {}
 }
 
 tgBtn.addEventListener("click", async () => {
   try {
     const { url } = await api("/api/telegram/link");
     window.open(url, "_blank");
-    // Poll for a bit in case the user comes back to this tab after connecting.
     let attempts = 0;
     const iv = setInterval(async () => {
       attempts += 1;
@@ -152,5 +244,16 @@ tgBtn.addEventListener("click", async () => {
   }
 });
 
+// If we're already inside the Mini App, there's nothing to "connect" -
+// Telegram identified us automatically, so hide the connect button.
+if (TG_INIT_DATA) {
+  tgBtn.textContent = "Telegram connected \u2713";
+  tgBtn.classList.add("connected");
+  tgBtn.onclick = null;
+} else {
+  refreshTelegramButton();
+}
+
 load();
-refreshTelegramButton();
+loadDiscover();
+refreshNewBountyToggle();
