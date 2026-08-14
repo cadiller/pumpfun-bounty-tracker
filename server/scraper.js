@@ -132,6 +132,16 @@ function classifyStage(bodyText, coarseStatus) {
   return fallback[coarseStatus] || "unknown";
 }
 
+/** Once a bounty is resolved: 'paid' | 'refunded' | null (not resolved yet) */
+function classifyOutcome(bodyText, stage) {
+  const t = bodyText || "";
+  if (/refund(ed)?\s*(to creator)?/i.test(t)) return "refunded";
+  if (/paid out to|payout receipt/i.test(t)) return "paid";
+  if (stage === "closed_no_winner") return "refunded";
+  if (stage === "claimable" || stage === "paid") return "paid";
+  return null;
+}
+
 /** Best-effort extraction of $ reward, winners count, submissions count. */
 function extractRichFields(bodyText) {
   const t = bodyText || "";
@@ -173,6 +183,7 @@ async function fetchBountyStatus(idOrUrl) {
   const summary = extractSummary(html);
   const status = classifyStatus(summary);
   const stage = classifyStage(summary.bodyText, status);
+  const outcome = classifyOutcome(summary.bodyText, stage);
   const rich = extractRichFields(summary.bodyText);
   const deadlineText = extractDeadlineText(summary.text);
 
@@ -186,6 +197,7 @@ async function fetchBountyStatus(idOrUrl) {
     submissionsCount: rich.submissionsCount,
     status,
     stage,
+    outcome,
     summary: summary.text,
     deadlineText,
   };
@@ -228,4 +240,5 @@ module.exports = {
   discoverNewBounties,
   classifyStatus,
   classifyStage,
+  classifyOutcome,
 };

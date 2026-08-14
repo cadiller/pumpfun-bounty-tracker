@@ -7,106 +7,100 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap"
     rel="stylesheet"
   />
   <link rel="stylesheet" href="/style.css" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
-<body>
+<body data-theme="dark">
   <div class="wrap">
-    <header class="masthead">
-      <div class="masthead-top">
-        <span class="eyebrow">BOUNTY WATCH</span>
-        <button id="telegram-btn" class="tg-btn">Connect Telegram</button>
-      </div>
-      <h1>Track a bounty past the finish line.</h1>
-      <p class="sub">
-        Paste a pump.fun bounty link. We watch it after the clock runs out — through
-        submissions closing, decision, dispute window, and payout — and message you
-        the moment it moves.
-      </p>
 
-      <form id="add-form" class="add-form">
-        <input
-          id="url-input"
-          type="text"
-          inputmode="url"
-          autocomplete="off"
-          placeholder="https://pump.fun/go/&hellip;"
-          required
-        />
-        <button type="submit">Track it</button>
-      </form>
-      <p id="form-error" class="form-error" hidden></p>
-    </header>
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>Bounty Watch</div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="theme-btn" title="Toggle theme" aria-label="Toggle light/dark theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+        <button class="wallet-chip" id="telegram-btn"><span class="g" id="tg-dot"></span><span id="tg-label">Connect Telegram</span></button>
+      </div>
+    </div>
 
-    <section class="manifest">
-      <div class="manifest-head">
-        <span>MANIFEST</span>
-        <span id="count">0 tracked</span>
-      </div>
-      <div id="empty" class="empty">
-        Nothing tracked yet. Paste a bounty link above to open a line on the manifest.
-      </div>
-      <ol id="list" class="list"></ol>
-    </section>
+    <div class="stats-row">
+      <div class="stat-tile"><div class="num" id="stat-tracked">0</div><div class="label">TRACKED</div></div>
+      <div class="stat-tile"><div class="num" id="stat-live">0</div><div class="label">LIVE</div></div>
+      <div class="stat-tile"><div class="num" id="stat-paid">$0</div><div class="label">PAID OUT</div></div>
+    </div>
 
-    <section class="manifest discover-section">
-      <div class="manifest-head">
-        <span>NEW BOUNTIES</span>
-        <button id="new-bounty-toggle" class="mini-toggle">Alert me</button>
-      </div>
-      <p class="discover-note">
-        Bounties we've spotted that you're not tracking yet. Discovery is experimental —
-        pump.fun doesn't publish a public feed of new bounties, so this list may be sparse.
-      </p>
-      <div id="discover-empty" class="empty">Nothing new spotted yet.</div>
-      <ol id="discover-list" class="list"></ol>
-    </section>
+    <form class="add-form" id="add-form">
+      <input id="url-input" type="text" inputmode="url" autocomplete="off" placeholder="Paste a pump.fun bounty link…" required />
+      <button type="submit">Track</button>
+    </form>
+    <p id="form-error" class="form-error" hidden></p>
+
+    <div class="section-title" id="my-bounties">Your bounties</div>
+    <div id="empty" class="empty">Nothing tracked yet. Paste a bounty link above to start.</div>
+    <div id="list"></div>
+
+    <div class="section-title discover-title" id="discover">
+      Discover new bounties
+      <button id="new-bounty-toggle" class="mini-toggle">Alert me</button>
+    </div>
+    <p class="discover-note">
+      Experimental — pump.fun doesn't publish a public feed of new bounties, so this may be sparse.
+    </p>
+    <div id="discover-empty" class="empty">Nothing new spotted yet.</div>
+    <div id="discover-list"></div>
+
+    <div class="bottom-spacer" id="alerts"></div>
   </div>
 
   <template id="card-template">
-    <li class="card">
-      <div class="rail">
-        <span class="stop" data-stop="live">LIVE</span>
-        <span class="stop" data-stop="review">REVIEW</span>
-        <span class="stop" data-stop="dispute">DISPUTE</span>
-        <span class="stop" data-stop="done">DONE</span>
+    <div class="bounty-card">
+      <div class="bc-top">
+        <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        <span class="badge"></span>
       </div>
-      <div class="card-body">
-        <div class="card-top">
-          <a class="title" href="#" target="_blank" rel="noopener"></a>
-          <span class="status-pill"></span>
-        </div>
-        <p class="summary"></p>
-        <div class="card-meta">
-          <span class="deadline"></span>
-          <span class="checked"></span>
-        </div>
-        <div class="card-actions">
-          <button class="refresh">Check now</button>
-          <button class="bell">Notify me</button>
-          <button class="delete" title="Stop tracking">Delete</button>
-        </div>
+      <div class="bc-sub"></div>
+      <div class="progress-track"><div class="progress-fill"></div></div>
+      <div class="progress-labels">
+        <span data-stage="live">Live</span><span data-stage="ended">Ended</span><span data-stage="dispute">Dispute</span><span data-stage="paid">Paid</span>
       </div>
-    </li>
+      <div class="bc-actions">
+        <button class="notify-btn">Notify me</button>
+        <button class="refresh-btn">Check now</button>
+        <button class="del-btn" title="Stop tracking">✕</button>
+      </div>
+    </div>
   </template>
 
   <template id="discover-card-template">
-    <li class="card discover-card">
-      <div class="card-body">
-        <div class="card-top">
-          <a class="title" href="#" target="_blank" rel="noopener"></a>
-          <span class="status-pill"></span>
-        </div>
-        <p class="summary"></p>
-        <div class="card-actions">
-          <button class="track-btn">Track it</button>
-        </div>
+    <div class="bounty-card">
+      <div class="bc-top">
+        <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        <span class="badge"></span>
       </div>
-    </li>
+      <div class="bc-sub"></div>
+      <div class="bc-actions">
+        <button class="track-btn full">Track it</button>
+      </div>
+    </div>
   </template>
+
+  <div class="bottom-nav">
+    <a href="#my-bounties" class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      My bounties
+    </a>
+    <a href="#discover" class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      Discover
+    </a>
+    <a href="#alerts" class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 00-7 7v4l-2 3h18l-2-3V9a7 7 0 00-7-7z"/><path d="M9 20a3 3 0 006 0"/></svg>
+      Alerts
+    </a>
+  </div>
 
   <script src="/app.js"></script>
 </body>

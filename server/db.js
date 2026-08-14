@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS bounties (
   submissions_count INTEGER,
   status TEXT NOT NULL DEFAULT 'unknown',   -- coarse: open|ended|ruled|paid|closed|unknown
   stage TEXT,                                -- fine: live|submissions_closed|decision_posted|dispute_window|finalizing_payout|claimable|closed_no_winner|unknown
+  outcome TEXT,                              -- once resolved: 'paid' | 'refunded' | null
   raw_summary TEXT,
   deadline_text TEXT,
   discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -69,5 +70,12 @@ CREATE TABLE IF NOT EXISTS link_owner (
   uid TEXT NOT NULL
 );
 `);
+
+// Migration for databases created before the `outcome` column existed.
+try {
+  db.exec("ALTER TABLE bounties ADD COLUMN outcome TEXT");
+} catch (_) {
+  /* column already exists - fine */
+}
 
 module.exports = db;

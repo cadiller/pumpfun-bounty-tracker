@@ -1,6 +1,4 @@
-// If opened inside Telegram as a Mini App, expand to full height and use
-// Telegram's signed initData to identify the user securely (no linking
-// needed - this is what fixes bounties leaking across different accounts).
+// --- Telegram Mini App identity ------------------------------------------
 const tgWebApp = window.Telegram?.WebApp;
 const TG_INIT_DATA = tgWebApp?.initData || null;
 if (tgWebApp) {
@@ -8,45 +6,68 @@ if (tgWebApp) {
   tgWebApp.expand();
 }
 
+// --- theme (persisted) -----------------------------------------------------
+const THEME_KEY = "bounty-watch-theme";
+function applyTheme(theme) {
+  document.body.setAttribute("data-theme", theme);
+  localStorage.setItem(THEME_KEY, theme);
+}
+applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+document.getElementById("theme-btn").addEventListener("click", () => {
+  const next = document.body.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  applyTheme(next);
+});
+
+// --- stage bucketing (4 groups the UI shows) --------------------------------
 const STAGE_GROUP = {
   live: "live",
-  submissions_closed: "review",
-  decision_posted: "review",
+  submissions_closed: "ended",
+  decision_posted: "ended",
   dispute_window: "dispute",
   finalizing_payout: "dispute",
-  claimable: "done",
-  paid: "done",
-  closed_no_winner: "done",
-  closed: "done",
-  unknown: "live",
+  claimable: "paid",
+  paid: "paid",
+  closed_no_winner: "paid",
+  closed: "paid",
+  unknown: "unknown",
 };
-const STAGE_ORDER = ["live", "review", "dispute", "done"];
-const STAGE_LABEL = {
-  live: "LIVE",
-  submissions_closed: "SUBMISSIONS CLOSED",
-  decision_posted: "DECISION POSTED",
-  dispute_window: "DISPUTE WINDOW",
-  finalizing_payout: "FINALIZING PAYOUT",
-  claimable: "CLAIMABLE",
-  paid: "PAID",
-  closed_no_winner: "CLOSED",
-  closed: "CLOSED",
-  unknown: "UNKNOWN",
-};
+const STAGE_ORDER = ["live", "ended", "dispute", "paid"];
+const BADGE_LABEL = { live: "LIVE", ended: "ENDED", dispute: "IN DISPUTE", paid: "PAID OUT", unknown: "UNKNOWN" };
 
+function outcomeText(bounty) {
+  if (bounty.outcome === "refunded") return "Refunded — no valid winner";
+  if (bounty.outcome === "paid" && bounty.winners_count) {
+    return `Paid to ${bounty.winners_count} winner${bounty.winners_count === 1 ? "" : "s"}`;
+  }
+  if (bounty.outcome === "paid") return "Paid out";
+  return null;
+}
+
+function subText(bounty) {
+  const bits = [];
+  if (bounty.reward_usd) bits.push(`$${bounty.reward_usd}`);
+  const out = outcomeText(bounty);
+  if (out) bits.push(out);
+  else if (bounty.deadline_text) bits.push(bounty.deadline_text);
+  return bits.join(" · ") || "No details yet";
+}
+
+// --- DOM refs ----------------------------------------------------------------
 const form = document.getElementById("add-form");
 const input = document.getElementById("url-input");
 const formError = document.getElementById("form-error");
 const list = document.getElementById("list");
 const empty = document.getElementById("empty");
-const count = document.getElementById("count");
-const template = document.getElementById("card-template");
-const tgBtn = document.getElementById("telegram-btn");
-
+const cardTemplate = document.getElementById("card-template");
+const discoverTemplate = document.getElementById("discover-card-template");
 const discoverList = document.getElementById("discover-list");
 const discoverEmpty = document.getElementById("discover-empty");
-const discoverTemplate = document.getElementById("discover-card-template");
 const newBountyToggle = document.getElementById("new-bounty-toggle");
+const tgBtn = document.getElementById("telegram-btn");
+const tgLabel = document.getElementById("tg-label");
+const statTracked = document.getElementById("stat-tracked");
+const statLive = document.getElementById("stat-live");
+const statPaid = document.getElementById("stat-paid");
 
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -57,58 +78,39 @@ async function api(path, options = {}) {
   return data;
 }
 
-function timeAgo(iso) {
-  if (!iso) return "never checked";
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return "checked just now";
-  if (mins < 60) return `checked ${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `checked ${hrs}h ago`;
-  return `checked ${Math.round(hrs / 24)}d ago`;
-}
-
 function renderCard(bounty) {
-  const node = template.content.cloneNode(true);
-  const li = node.querySelector(".card");
-  li.dataset.id = bounty.id;
-
-  const group = STAGE_GROUP[bounty.stage] || "live";
+  const node = cardTemplate.content.cloneNode(true);
+  const group = STAGE_GROUP[bounty.stage] || "unknown";
   const idx = STAGE_ORDER.indexOf(group);
-  node.querySelectorAll(".stop").forEach((el, i) => {
-    el.classList.toggle("lit", i <= idx);
-    el.classList.toggle("current", i === idx);
-  });
 
-  const titleEl = node.querySelector(".title");
+  const titleEl = node.querySelector(".bc-title");
   titleEl.textContent = bounty.title || bounty.id;
   titleEl.href = bounty.url;
 
-  const pill = node.querySelector(".status-pill");
-  pill.textContent = STAGE_LABEL[bounty.stage] || (bounty.stage || "unknown").toUpperCase();
-  pill.dataset.status = bounty.stage;
+  const badge = node.querySelector(".badge");
+  badge.textContent = BADGE_LABEL[group];
+  badge.dataset.b = group;
 
-  node.querySelector(".summary").textContent = bounty.raw_summary || "No summary available yet.";
-  node.querySelector(".deadline").textContent = bounty.deadline_text || "\u2014";
-  node.querySelector(".checked").textContent = timeAgo(bounty.last_checked_at);
+  node.querySelector(".bc-sub").textContent = subText(bounty);
 
-  const bell = node.querySelector(".bell");
-  bell.classList.toggle("active", Boolean(bounty.notify));
-  bell.textContent = bounty.notify ? "Notifying \u2713" : "Notify me";
-  bell.addEventListener("click", async () => {
-    try {
-      await api(`/api/bounties/${bounty.id}/notify`, {
-        method: "POST",
-        body: JSON.stringify({ notify: !bounty.notify }),
-      });
-      await load();
-    } catch (err) {
-      alert(err.message);
-    }
+  const fill = node.querySelector(".progress-fill");
+  fill.style.width = idx >= 0 ? `${((idx + 1) / STAGE_ORDER.length) * 100}%` : "0%";
+  node.querySelectorAll(".progress-labels span").forEach((el) => {
+    el.classList.toggle("on", el.dataset.stage === group);
   });
 
-  node.querySelector(".refresh").addEventListener("click", async (e) => {
-    e.target.textContent = "Checking\u2026";
+  const notifyBtn = node.querySelector(".notify-btn");
+  notifyBtn.classList.toggle("active", Boolean(bounty.notify));
+  notifyBtn.textContent = bounty.notify ? "Notifying ✓" : "Notify me";
+  notifyBtn.addEventListener("click", async () => {
+    try {
+      await api(`/api/bounties/${bounty.id}/notify`, { method: "POST", body: JSON.stringify({ notify: !bounty.notify }) });
+      await load();
+    } catch (err) { alert(err.message); }
+  });
+
+  node.querySelector(".refresh-btn").addEventListener("click", async (e) => {
+    e.target.textContent = "Checking…";
     e.target.disabled = true;
     try {
       await api(`/api/bounties/${bounty.id}/refresh`, { method: "POST" });
@@ -120,14 +122,12 @@ function renderCard(bounty) {
     }
   });
 
-  node.querySelector(".delete").addEventListener("click", async () => {
-    if (!confirm("Stop tracking this bounty? This removes it everywhere - site, Mini App, and bot.")) return;
+  node.querySelector(".del-btn").addEventListener("click", async () => {
+    if (!confirm("Stop tracking this bounty? Removes it everywhere - site, Mini App, and bot.")) return;
     try {
       await api(`/api/bounties/${bounty.id}`, { method: "DELETE" });
       await load();
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
   });
 
   return node;
@@ -137,25 +137,33 @@ async function load() {
   const bounties = await api("/api/bounties");
   list.innerHTML = "";
   empty.hidden = bounties.length > 0;
-  count.textContent = `${bounties.length} tracked`;
   for (const b of bounties) list.appendChild(renderCard(b));
+
+  statTracked.textContent = bounties.length;
+  statLive.textContent = bounties.filter((b) => STAGE_GROUP[b.stage] === "live").length;
+  const paidTotal = bounties
+    .filter((b) => b.outcome === "paid" && b.reward_usd)
+    .reduce((sum, b) => sum + b.reward_usd, 0);
+  statPaid.textContent = `$${Math.round(paidTotal)}`;
 }
 
 function renderDiscoverCard(bounty) {
   const node = discoverTemplate.content.cloneNode(true);
-  const titleEl = node.querySelector(".title");
+  const group = STAGE_GROUP[bounty.stage] || "unknown";
+
+  const titleEl = node.querySelector(".bc-title");
   titleEl.textContent = bounty.title || bounty.id;
   titleEl.href = bounty.url;
 
-  const pill = node.querySelector(".status-pill");
-  pill.textContent = STAGE_LABEL[bounty.stage] || (bounty.stage || "unknown").toUpperCase();
-  pill.dataset.status = bounty.stage;
+  const badge = node.querySelector(".badge");
+  badge.textContent = BADGE_LABEL[group];
+  badge.dataset.b = group;
 
-  node.querySelector(".summary").textContent = bounty.raw_summary || "No summary available yet.";
+  node.querySelector(".bc-sub").textContent = subText(bounty);
 
   node.querySelector(".track-btn").addEventListener("click", async (e) => {
     e.target.disabled = true;
-    e.target.textContent = "Tracking\u2026";
+    e.target.textContent = "Tracking…";
     try {
       await api("/api/bounties", { method: "POST", body: JSON.stringify({ url: bounty.url }) });
       await load();
@@ -176,27 +184,22 @@ async function loadDiscover() {
     discoverList.innerHTML = "";
     discoverEmpty.hidden = bounties.length > 0;
     for (const b of bounties) discoverList.appendChild(renderDiscoverCard(b));
-  } catch (_) {
-    /* discovery is best-effort; fail quietly */
-  }
+  } catch (_) { /* best-effort */ }
 }
 
 async function refreshNewBountyToggle() {
   try {
     const { subscribed } = await api("/api/new-bounties/status");
     newBountyToggle.classList.toggle("on", subscribed);
-    newBountyToggle.textContent = subscribed ? "Alerting \u2713" : "Alert me";
+    newBountyToggle.textContent = subscribed ? "Alerting ✓" : "Alert me";
   } catch (_) {}
 }
-
 newBountyToggle.addEventListener("click", async () => {
   const isOn = newBountyToggle.classList.contains("on");
   try {
     await api(`/api/new-bounties/${isOn ? "unsubscribe" : "subscribe"}`, { method: "POST" });
     await refreshNewBountyToggle();
-  } catch (err) {
-    alert(err.message);
-  }
+  } catch (err) { alert(err.message); }
 });
 
 form.addEventListener("submit", async (e) => {
@@ -204,7 +207,7 @@ form.addEventListener("submit", async (e) => {
   formError.hidden = true;
   const btn = form.querySelector("button");
   btn.disabled = true;
-  btn.textContent = "Tracking\u2026";
+  btn.textContent = "Tracking…";
   try {
     await api("/api/bounties", { method: "POST", body: JSON.stringify({ url: input.value }) });
     input.value = "";
@@ -214,7 +217,7 @@ form.addEventListener("submit", async (e) => {
     formError.hidden = false;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Track it";
+    btn.textContent = "Track";
   }
 });
 
@@ -222,13 +225,12 @@ async function refreshTelegramButton() {
   try {
     const status = await api("/api/telegram/status");
     if (status.connected) {
-      tgBtn.textContent = "Telegram connected \u2713";
+      tgLabel.textContent = "Telegram connected";
       tgBtn.classList.add("connected");
       tgBtn.onclick = null;
     }
   } catch (_) {}
 }
-
 tgBtn.addEventListener("click", async () => {
   try {
     const { url } = await api("/api/telegram/link");
@@ -244,10 +246,8 @@ tgBtn.addEventListener("click", async () => {
   }
 });
 
-// If we're already inside the Mini App, there's nothing to "connect" -
-// Telegram identified us automatically, so hide the connect button.
 if (TG_INIT_DATA) {
-  tgBtn.textContent = "Telegram connected \u2713";
+  tgLabel.textContent = "Telegram connected";
   tgBtn.classList.add("connected");
   tgBtn.onclick = null;
 } else {

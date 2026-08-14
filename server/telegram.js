@@ -14,17 +14,26 @@ const {
 let bot = null;
 
 const STAGE_LABEL = {
-  live: "OPEN",
-  submissions_closed: "SUBMISSIONS CLOSED",
-  decision_posted: "DECISION POSTED",
-  dispute_window: "DISPUTE WINDOW",
-  finalizing_payout: "FINALIZING PAYOUT",
-  claimable: "CLAIMABLE",
-  paid: "PAID",
-  closed_no_winner: "CLOSED (no winner)",
-  closed: "CLOSED",
+  live: "LIVE",
+  submissions_closed: "ENDED",
+  decision_posted: "ENDED",
+  dispute_window: "IN DISPUTE",
+  finalizing_payout: "IN DISPUTE",
+  claimable: "PAID OUT",
+  paid: "PAID OUT",
+  closed_no_winner: "PAID OUT",
+  closed: "PAID OUT",
   unknown: "UNKNOWN",
 };
+
+function describeOutcome(bounty) {
+  if (bounty.outcome === "refunded") return "Refunded — no valid winner";
+  if (bounty.outcome === "paid" && bounty.winners_count) {
+    return `Paid to ${bounty.winners_count} winner${bounty.winners_count === 1 ? "" : "s"}`;
+  }
+  if (bounty.outcome === "paid") return "Paid out";
+  return null;
+}
 
 function initTelegram() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -64,9 +73,12 @@ function initTelegram() {
     const ownerKey = `tg:${ctx.chat.id}`;
     const rows = listTrackedForOwner(ownerKey);
     if (!rows.length) return ctx.reply("You're not tracking any bounties yet. Paste a link to start.");
-    const lines = rows.map(
-      (b) => `• ${b.title || b.id} — ${STAGE_LABEL[b.stage] || b.stage}\n  ${b.url}`
-    );
+    const lines = rows.map((b) => {
+      const label = STAGE_LABEL[b.stage] || b.stage;
+      const outcome = describeOutcome(b);
+      const stageText = outcome ? `${label} — ${outcome}` : label;
+      return `• ${b.title || b.id} — ${stageText}\n  ${b.url}`;
+    });
     return ctx.reply(lines.join("\n\n"));
   });
 
@@ -125,4 +137,4 @@ async function notifyChat(chatId, text) {
   }
 }
 
-module.exports = { initTelegram, notifyChat, STAGE_LABEL };
+module.exports = { initTelegram, notifyChat, STAGE_LABEL, describeOutcome };

@@ -7,7 +7,7 @@ const {
   notifiableTrackersFor,
   allNewBountySubscribers,
 } = require("./store");
-const { notifyChat, STAGE_LABEL } = require("./telegram");
+const { notifyChat, STAGE_LABEL, describeOutcome } = require("./telegram");
 
 async function checkOne(bountyId) {
   try {
@@ -17,8 +17,10 @@ async function checkOne(bountyId) {
       console.log(`[poller] ${bountyId}: ${previousStage} -> ${scraped.stage}`);
       const ownerKeys = notifiableTrackersFor(bountyId);
       const label = STAGE_LABEL[scraped.stage] || scraped.stage;
+      const outcomeText = describeOutcome({ outcome: scraped.outcome, winners_count: scraped.winnersCount });
+      const stageLine = outcomeText ? `${label} — ${outcomeText}` : label;
       const text =
-        `\ud83d\udd14 "${scraped.title || bountyId}" is now ${label}\n${scraped.url}` +
+        `\ud83d\udd14 "${scraped.title || bountyId}" is now ${stageLine}\n${scraped.url}` +
         (scraped.summary ? `\n\n${scraped.summary.slice(0, 300)}` : "");
       for (const ownerKey of ownerKeys) {
         if (ownerKey.startsWith("tg:")) await notifyChat(ownerKey.slice(3), text);

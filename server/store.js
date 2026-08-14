@@ -9,13 +9,13 @@ function upsertBounty(scraped) {
   if (!existing) {
     db.prepare(
       `INSERT INTO bounties (id, url, title, reward_text, reward_usd, winners_count,
-        submissions_count, status, stage, raw_summary, deadline_text,
+        submissions_count, status, stage, outcome, raw_summary, deadline_text,
         last_checked_at, last_changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       scraped.id, scraped.url, scraped.title, scraped.rewardText,
       scraped.rewardUsd ?? null, scraped.winnersCount ?? null, scraped.submissionsCount ?? null,
-      scraped.status, scraped.stage, scraped.summary, scraped.deadlineText, now, now
+      scraped.status, scraped.stage, scraped.outcome ?? null, scraped.summary, scraped.deadlineText, now, now
     );
     db.prepare(
       "INSERT INTO stage_history (bounty_id, status, stage, summary) VALUES (?, ?, ?, ?)"
@@ -27,13 +27,13 @@ function upsertBounty(scraped) {
 
   const sql = changed
     ? `UPDATE bounties SET title=?, reward_text=?, reward_usd=?, winners_count=?, submissions_count=?,
-       status=?, stage=?, raw_summary=?, deadline_text=?, last_checked_at=?, last_changed_at=? WHERE id=?`
+       status=?, stage=?, outcome=?, raw_summary=?, deadline_text=?, last_checked_at=?, last_changed_at=? WHERE id=?`
     : `UPDATE bounties SET title=?, reward_text=?, reward_usd=?, winners_count=?, submissions_count=?,
-       status=?, stage=?, raw_summary=?, deadline_text=?, last_checked_at=? WHERE id=?`;
+       status=?, stage=?, outcome=?, raw_summary=?, deadline_text=?, last_checked_at=? WHERE id=?`;
 
   const params = [
     scraped.title, scraped.rewardText, scraped.rewardUsd ?? null, scraped.winnersCount ?? null,
-    scraped.submissionsCount ?? null, scraped.status, scraped.stage, scraped.summary,
+    scraped.submissionsCount ?? null, scraped.status, scraped.stage, scraped.outcome ?? null, scraped.summary,
     scraped.deadlineText, now,
   ];
   if (changed) params.push(now);
