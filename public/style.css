@@ -224,3 +224,4 @@ html, body {
 }
 
 @media (max-width: 380px) { .stats-row { gap: 6px; } .stat-tile { padding: 11px 6px; } .stat-tile .num { font-size: 18px; } }
+.overlay[hidden] { display: none; }
