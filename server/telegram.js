@@ -110,7 +110,7 @@ function initTelegram() {
     try {
       await ctx.reply("Checking that bounty...");
       const scraped = await fetchBountyStatus(id);
-      upsertBounty(scraped);
+      upsertBounty(scraped, "manual");
       trackForOwner(`tg:${ctx.chat.id}`, scraped.id, 1);
       return ctx.reply(
         `Tracking "${scraped.title || scraped.id}"\nStage: ${STAGE_LABEL[scraped.stage] || scraped.stage}\n${scraped.url}\n\n` +

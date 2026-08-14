@@ -155,10 +155,47 @@ function extractRichFields(bodyText) {
   };
 }
 
+/**
+ * Best-effort full description / deliverables text, so a tracked bounty is
+ * useful to read without opening pump.fun. Tries to grab the block after a
+ * "Deliverables" heading first (matches the pattern seen on real bounty
+ * pages); falls back to a longer slice of body text if that heading isn't
+ * present. This is inherently fuzzy since we're working from plain text,
+ * not structured data - trim/tidy is applied but it won't be perfect.
+ */
+function extractDescription(bodyText, shortSummary) {
+  const t = bodyText || "";
+  const deliverablesMatch = t.match(/Deliverables?:?\s*([\s\S]{20,1200}?)(?:\n\n|Reward:|Ends:|Submit|$)/i);
+  if (deliverablesMatch && deliverablesMatch[1].trim().length > 20) {
+    return deliverablesMatch[1].trim().slice(0, 1000);
+  }
+  // Fall back to a longer chunk of the summary/body text than the card's
+  // short preview uses, so there's still something substantive to read.
+  const fallback = (shortSummary || t).slice(0, 600).trim();
+  return fallback || null;
+}
+
 function extractDeadlineText(text) {
   if (!text) return null;
   const m = text.match(/(\d+\s*(?:day|hour|minute|hr|min)s?\s*left)|(\bends?\s+in\s+[^.]+)/i);
   return m ? m[0].trim() : null;
+}
+
+/** Best-effort hours-remaining, parsed from free text like "12d 20h" or
+ * "3 hours left". Returns null when it can't confidently parse anything -
+ * callers should treat null as "unknown", not zero. */
+function parseHoursRemaining(deadlineText) {
+  if (!deadlineText) return null;
+  const t = deadlineText.toLowerCase();
+  const days = t.match(/(\d+)\s*d(?:ay)?/);
+  const hours = t.match(/(\d+)\s*h(?:our|r)?/);
+  const mins = t.match(/(\d+)\s*m(?:in)?/);
+  if (!days && !hours && !mins) return null;
+  return (
+    (days ? parseInt(days[1], 10) * 24 : 0) +
+    (hours ? parseInt(hours[1], 10) : 0) +
+    (mins ? parseInt(mins[1], 10) / 60 : 0)
+  );
 }
 
 async function fetchBountyStatus(idOrUrl) {
@@ -185,12 +222,14 @@ async function fetchBountyStatus(idOrUrl) {
   const stage = classifyStage(summary.bodyText, status);
   const outcome = classifyOutcome(summary.bodyText, stage);
   const rich = extractRichFields(summary.bodyText);
+  const description = extractDescription(summary.bodyText, summary.text);
   const deadlineText = extractDeadlineText(summary.text);
 
   return {
     id,
     url,
     title: summary.title || null,
+    description,
     rewardText: summary.rewardText || null,
     rewardUsd: rich.rewardUsd,
     winnersCount: rich.winnersCount,
@@ -241,4 +280,5 @@ module.exports = {
   classifyStatus,
   classifyStage,
   classifyOutcome,
+  parseHoursRemaining,
 };

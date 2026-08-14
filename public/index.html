@@ -14,6 +14,7 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body data-theme="dark">
+  <div class="app-shell">
   <div class="wrap">
 
     <div class="topbar">
@@ -27,9 +28,9 @@
     </div>
 
     <div class="stats-row">
-      <div class="stat-tile"><div class="num" id="stat-tracked">0</div><div class="label">TRACKED</div></div>
-      <div class="stat-tile"><div class="num" id="stat-live">0</div><div class="label">LIVE</div></div>
-      <div class="stat-tile"><div class="num" id="stat-paid">$0</div><div class="label">PAID OUT</div></div>
+      <div class="stat-tile"><div class="num" id="stat-tracked">–</div><div class="label">TRACKED</div></div>
+      <div class="stat-tile"><div class="num" id="stat-live">–</div><div class="label">LIVE</div></div>
+      <div class="stat-tile"><div class="num" id="stat-paid">–</div><div class="label">PAID OUT</div></div>
     </div>
 
     <form class="add-form" id="add-form">
@@ -38,27 +39,82 @@
     </form>
     <p id="form-error" class="form-error" hidden></p>
 
-    <div class="section-title" id="my-bounties">Your bounties</div>
-    <div id="empty" class="empty">Nothing tracked yet. Paste a bounty link above to start.</div>
-    <div id="list"></div>
+    <!-- MY BOUNTIES -->
+    <section id="page-my" class="page">
+      <div class="section-title">
+        <span>Your bounties</span>
+        <span class="freshness" id="my-freshness"></span>
+      </div>
+      <div id="my-skeleton" class="skeleton-list"></div>
+      <div id="my-error" class="error-box" hidden>
+        <div>Couldn't update bounties. Your existing tracked data is still available.</div>
+        <button id="my-retry">Try Again</button>
+      </div>
+      <div id="empty" class="empty" hidden>
+        <div class="empty-title">No tracked bounties yet</div>
+        <div class="empty-sub">Paste a bounty link above to start tracking.</div>
+      </div>
+      <div id="list"></div>
+    </section>
 
-    <div class="section-title discover-title" id="discover">
-      Discover new bounties
-      <button id="new-bounty-toggle" class="mini-toggle">Alert me</button>
-    </div>
-    <p class="discover-note">
-      Experimental — pump.fun doesn't publish a public feed of new bounties, so this may be sparse.
-    </p>
-    <div id="discover-empty" class="empty">Nothing new spotted yet.</div>
-    <div id="discover-list"></div>
+    <!-- DISCOVER -->
+    <section id="page-discover" class="page" hidden>
+      <div class="section-title"><span>Discover Bounties</span></div>
+      <p class="discover-note">Find the latest bounties as they're posted. Experimental — pump.fun doesn't publish a public feed of new bounties, so this may be sparse.</p>
+      <div class="sort-row" id="sort-row">
+        <button class="sort-btn active" data-sort="newest">Newest</button>
+        <button class="sort-btn" data-sort="reward">Highest Reward</button>
+        <button class="sort-btn" data-sort="active">Active</button>
+      </div>
+      <div id="discover-skeleton" class="skeleton-list"></div>
+      <div id="discover-error" class="error-box" hidden>
+        <div>Couldn't load new bounties right now.</div>
+        <button id="discover-retry">Try Again</button>
+      </div>
+      <div id="discover-empty" class="empty" hidden>
+        <div class="empty-title">No new bounties yet</div>
+        <div class="empty-sub">We'll show newly detected bounties here.</div>
+      </div>
+      <div id="discover-list"></div>
+    </section>
 
-    <div class="bottom-spacer" id="alerts"></div>
+    <!-- ALERTS -->
+    <section id="page-alerts" class="page" hidden>
+      <div class="section-title">
+        <span>Alerts</span>
+        <button id="mark-all-read" class="mini-toggle">Mark all read</button>
+      </div>
+      <div class="alerts-toggle-row">
+        <span>Get pinged about brand new bounties</span>
+        <button id="new-bounty-toggle" class="mini-toggle">Alert me</button>
+      </div>
+      <div id="alerts-empty" class="empty" hidden>
+        <div class="empty-title">You're all caught up</div>
+        <div class="empty-sub">No new notifications.</div>
+      </div>
+      <div id="alerts-list"></div>
+    </section>
+
   </div>
+  </div>
+
+  <!-- DETAIL MODAL -->
+  <div id="detail-overlay" class="overlay" hidden>
+    <div class="detail-sheet">
+      <button class="detail-close" id="detail-close" aria-label="Close">✕</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
 
   <template id="card-template">
     <div class="bounty-card">
       <div class="bc-top">
-        <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        <div class="bc-title-wrap">
+          <span class="new-badge" hidden>NEW</span>
+          <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        </div>
         <span class="badge"></span>
       </div>
       <div class="bc-sub"></div>
@@ -66,6 +122,7 @@
       <div class="progress-labels">
         <span data-stage="live">Live</span><span data-stage="ended">Ended</span><span data-stage="dispute">Dispute</span><span data-stage="paid">Paid</span>
       </div>
+      <div class="bc-meta"></div>
       <div class="bc-actions">
         <button class="notify-btn">Notify me</button>
         <button class="refresh-btn">Check now</button>
@@ -77,30 +134,48 @@
   <template id="discover-card-template">
     <div class="bounty-card">
       <div class="bc-top">
-        <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        <div class="bc-title-wrap">
+          <span class="new-badge" hidden>NEW</span>
+          <a class="bc-title" href="#" target="_blank" rel="noopener"></a>
+        </div>
         <span class="badge"></span>
       </div>
       <div class="bc-sub"></div>
       <div class="bc-actions">
+        <button class="view-btn">View</button>
         <button class="track-btn full">Track it</button>
       </div>
     </div>
   </template>
 
-  <div class="bottom-nav">
-    <a href="#my-bounties" class="nav-item active">
+  <template id="alert-template">
+    <div class="alert-item">
+      <span class="alert-icon"></span>
+      <div class="alert-body">
+        <div class="alert-title"></div>
+        <div class="alert-msg"></div>
+        <div class="alert-time"></div>
+      </div>
+      <span class="unread-dot"></span>
+    </div>
+  </template>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-page="my">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       My bounties
-    </a>
-    <a href="#discover" class="nav-item">
+    </button>
+    <button class="nav-item" data-page="discover">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       Discover
-    </a>
-    <a href="#alerts" class="nav-item">
+      <span class="nav-badge" id="discover-badge" hidden></span>
+    </button>
+    <button class="nav-item" data-page="alerts">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 00-7 7v4l-2 3h18l-2-3V9a7 7 0 00-7-7z"/><path d="M9 20a3 3 0 006 0"/></svg>
       Alerts
-    </a>
-  </div>
+      <span class="nav-badge" id="alerts-badge" hidden></span>
+    </button>
+  </nav>
 
   <script src="/app.js"></script>
 </body>

@@ -7,6 +7,7 @@ const db = require("./db");
 const { fetchBountyStatus, extractBountyId } = require("./scraper");
 const {
   upsertBounty,
+  getBounty,
   allBounties,
   stageHistory,
   trackForOwner,
@@ -14,9 +15,16 @@ const {
   setNotify,
   listTrackedForOwner,
   isTracked,
+  listDiscoverForOwner,
+  markDiscoveryViewed,
+  unseenDiscoverCount,
   subscribeNewBounties,
   unsubscribeNewBounties,
   isSubscribedToNewBounties,
+  listNotifications,
+  unreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
 } = require("./store");
 const { initTelegram } = require("./telegram");
 const { startPoller, checkOne } = require("./poller");
@@ -25,19 +33,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-// --- identify who's asking -------------------------------------------------
-//
-// Two ways a person can be identified:
-//  1. Telegram Mini App: the client sends the raw `initData` string Telegram
-//     gives it. We verify its signature with our bot token (Telegram's
-//     documented auth flow) and trust the user id inside it. This is the
-//     secure, no-linking-needed path and fixes the earlier bug where every
-//     visitor saw the same shared list - each Telegram account is now
-//     cryptographically its own owner_key.
-//  2. Plain browser: falls back to an anonymous per-browser cookie. If that
-//     browser has been linked to a Telegram chat (via the "Connect
-//     Telegram" flow), we use that chat's owner_key instead so the website
-//     and the bot show the same list.
+// --- identify who's asking (see comments below for the auth design) -------
 
 function verifyTelegramInitData(initData, botToken) {
   if (!initData || !botToken) return null;
@@ -98,7 +94,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- Telegram linking (for plain-browser visitors) -------------------------
+// --- Telegram linking (plain-browser visitors) ------------------------------
 
 app.get("/api/telegram/link", (req, res) => {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME;
@@ -115,10 +111,27 @@ app.get("/api/telegram/status", (req, res) => {
   res.json({ connected: req.ownerKey.startsWith("tg:"), ownerKey: req.ownerKey });
 });
 
-// --- bounties (scoped to whoever's asking) ---------------------------------
+// --- bounties (scoped to whoever's asking) ----------------------------------
 
 app.get("/api/bounties", (req, res) => {
   res.json(listTrackedForOwner(req.ownerKey));
+});
+
+// Single bounty detail - full description, history, tracked/notify state
+// for whoever's asking. Powers the detail view.
+app.get("/api/bounties/:id", (req, res) => {
+  const bounty = getBounty(req.params.id);
+  if (!bounty) return res.status(404).json({ error: "Not found." });
+  const tracked = isTracked(req.ownerKey, req.params.id);
+  const notifyRow = tracked
+    ? db.prepare("SELECT notify FROM trackers WHERE owner_key = ? AND bounty_id = ?").get(req.ownerKey, req.params.id)
+    : null;
+  res.json({
+    ...bounty,
+    tracked,
+    notify: notifyRow ? Boolean(notifyRow.notify) : false,
+    history: stageHistory(req.params.id),
+  });
 });
 
 app.post("/api/bounties", async (req, res) => {
@@ -127,20 +140,17 @@ app.post("/api/bounties", async (req, res) => {
   if (!id) return res.status(400).json({ error: "That doesn't look like a pump.fun bounty link." });
   try {
     const scraped = await fetchBountyStatus(id);
-    upsertBounty(scraped);
-    // Telegram-identified owners get notified by default; anonymous
-    // web-only visitors start with notify off since we have no chat to
-    // message them on until they connect Telegram.
+    // Tagged 'manual' - this user found and pasted it themselves, so it
+    // must never show up as a "new discovery" for other people.
+    upsertBounty(scraped, "manual");
     trackForOwner(req.ownerKey, id, req.ownerKey.startsWith("tg:") ? 1 : 0);
+    markDiscoveryViewed(req.ownerKey, id); // if it happened to already be in Discover for this user
     res.json({ ...scraped, tracked: true });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
 });
 
-// Real delete: removes it from *this* owner's list. Because the Mini App,
-// website, and bot all resolve to the same owner_key for the same Telegram
-// account, this disappears everywhere for that person at once.
 app.delete("/api/bounties/:id", (req, res) => {
   untrackForOwner(req.ownerKey, req.params.id);
   res.json({ ok: true });
@@ -157,30 +167,32 @@ app.post("/api/bounties/:id/notify", (req, res) => {
 
 app.post("/api/bounties/:id/refresh", async (req, res) => {
   await checkOne(req.params.id);
-  res.json(db.prepare("SELECT * FROM bounties WHERE id = ?").get(req.params.id));
+  res.json(getBounty(req.params.id));
 });
 
 app.get("/api/bounties/:id/history", (req, res) => {
   res.json(stageHistory(req.params.id));
 });
 
-// --- discovered bounties (anything the poller has seen, not yet tracked
-//     by this owner) - lets the site/Mini App show "new bounties to track"
+// --- discover (only bounties the POLLER found organically) -----------------
 
 app.get("/api/discover", (req, res) => {
-  const mine = new Set(listTrackedForOwner(req.ownerKey).map((b) => b.id));
-  const recent = allBounties()
-    .filter((b) => !mine.has(b.id))
-    .slice(0, 30);
-  res.json(recent);
+  const sort = ["newest", "reward", "active"].includes(req.query.sort) ? req.query.sort : "newest";
+  res.json(listDiscoverForOwner(req.ownerKey, sort));
 });
 
-// --- opt-in "tell me about brand new bounties" ------------------------------
+app.post("/api/discover/:id/view", (req, res) => {
+  markDiscoveryViewed(req.ownerKey, req.params.id);
+  res.json({ ok: true });
+});
+
+app.get("/api/discover/unseen-count", (req, res) => {
+  res.json({ count: unseenDiscoverCount(req.ownerKey) });
+});
 
 app.get("/api/new-bounties/status", (req, res) => {
   res.json({ subscribed: isSubscribedToNewBounties(req.ownerKey) });
 });
-
 app.post("/api/new-bounties/subscribe", (req, res) => {
   if (!req.ownerKey.startsWith("tg:")) {
     return res.status(400).json({ error: "Connect Telegram first to get new-bounty alerts." });
@@ -188,9 +200,25 @@ app.post("/api/new-bounties/subscribe", (req, res) => {
   subscribeNewBounties(req.ownerKey);
   res.json({ ok: true });
 });
-
 app.post("/api/new-bounties/unsubscribe", (req, res) => {
   unsubscribeNewBounties(req.ownerKey);
+  res.json({ ok: true });
+});
+
+// --- notification center (Alerts tab) ---------------------------------------
+
+app.get("/api/notifications", (req, res) => {
+  res.json({
+    items: listNotifications(req.ownerKey),
+    unread: unreadNotificationCount(req.ownerKey),
+  });
+});
+app.post("/api/notifications/:id/read", (req, res) => {
+  markNotificationRead(req.ownerKey, Number(req.params.id));
+  res.json({ ok: true });
+});
+app.post("/api/notifications/read-all", (req, res) => {
+  markAllNotificationsRead(req.ownerKey);
   res.json({ ok: true });
 });
 
