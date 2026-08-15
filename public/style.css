@@ -118,6 +118,7 @@ html, body {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
   display: flex; align-items: flex-end; justify-content: center;
 }
+.modal-backdrop[hidden] { display: none; }
 .modal {
   background: var(--bg); width: 100%; max-width: 460px; max-height: 86vh; overflow-y: auto;
   border-radius: 20px 20px 0 0; padding: 20px 18px 28px; border: 1px solid var(--line); border-bottom: none;
