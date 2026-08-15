@@ -35,6 +35,20 @@ function describeOutcome(bounty) {
   return null;
 }
 
+function formatBountyDetail(scraped) {
+  const label = STAGE_LABEL[scraped.stage] || scraped.stage;
+  const outcome = describeOutcome({ outcome: scraped.outcome, winners_count: scraped.winnersCount });
+  const parts = [`"${scraped.title || scraped.id}" — ${outcome ? `${label} — ${outcome}` : label}`];
+  if (scraped.rewardUsd) parts.push(`Reward pool: $${scraped.rewardUsd}`);
+  if (scraped.splitText) parts.push(`Split: ${scraped.splitText}`);
+  parts.push(`Submissions so far: ${scraped.submissionsCount ?? 0}`);
+  if (scraped.deadlineText) parts.push(scraped.deadlineText);
+  if (scraped.description) parts.push(`\nDescription:\n${scraped.description.slice(0, 600)}`);
+  if (scraped.deliverables) parts.push(`\nDeliverables:\n${scraped.deliverables.slice(0, 600)}`);
+  parts.push(scraped.url);
+  return parts.join("\n");
+}
+
 function initTelegram() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -110,12 +124,9 @@ function initTelegram() {
     try {
       await ctx.reply("Checking that bounty...");
       const scraped = await fetchBountyStatus(id);
-      upsertBounty(scraped, "manual");
+      upsertBounty(scraped);
       trackForOwner(`tg:${ctx.chat.id}`, scraped.id, 1);
-      return ctx.reply(
-        `Tracking "${scraped.title || scraped.id}"\nStage: ${STAGE_LABEL[scraped.stage] || scraped.stage}\n${scraped.url}\n\n` +
-          "I'll message you here when this changes."
-      );
+      return ctx.reply(`Tracking:\n\n${formatBountyDetail(scraped)}\n\nI'll message you here when this changes.`);
     } catch (err) {
       return ctx.reply(`Couldn't read that bounty: ${err.message}`);
     }
@@ -137,4 +148,4 @@ async function notifyChat(chatId, text) {
   }
 }
 
-module.exports = { initTelegram, notifyChat, STAGE_LABEL, describeOutcome };
+module.exports = { initTelegram, notifyChat, STAGE_LABEL, describeOutcome, formatBountyDetail };
