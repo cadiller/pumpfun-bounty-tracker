@@ -207,6 +207,15 @@ async function loadDiscover() {
 
 // --- detail modal ------------------------------------------------------------
 const modalBackdrop = document.getElementById("modal-backdrop");
+// Some mobile WebViews (including Telegram's) restore the exact previous
+// screen state - including an open modal - when the Mini App is reopened,
+// even though the underlying data has since reset. Force it closed on
+// every load and on bfcache restores so this can never leave someone
+// stuck looking at a modal with nothing behind it.
+modalBackdrop.hidden = true;
+window.addEventListener("pageshow", () => {
+  modalBackdrop.hidden = true;
+});
 const modalTitle = document.getElementById("modal-title");
 const modalBadge = document.getElementById("modal-badge");
 const modalReward = document.getElementById("modal-reward");

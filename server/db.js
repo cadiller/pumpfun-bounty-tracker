@@ -1,7 +1,13 @@
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 
-const db = new DatabaseSync(path.join(__dirname, "..", "data.sqlite"));
+// On Railway (and similar hosts), the container's own filesystem is wiped
+// on every redeploy - anything written there disappears. If DATA_DIR is
+// set (pointing at a mounted persistent volume), the database lives there
+// instead and survives redeploys. Locally/on Termux, DATA_DIR is unset and
+// this falls back to the project folder exactly as before.
+const dataDir = process.env.DATA_DIR || path.join(__dirname, "..");
+const db = new DatabaseSync(path.join(dataDir, "data.sqlite"));
 db.exec("PRAGMA journal_mode = WAL;");
 
 db.exec(`

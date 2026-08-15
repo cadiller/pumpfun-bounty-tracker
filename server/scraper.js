@@ -76,13 +76,15 @@ function extractSummary(html) {
     title: (jsonSummary && jsonSummary.title) || title.trim(),
     rewardText: jsonSummary && jsonSummary.rewardText,
     shortText: metaDescription.trim(),
-    // Prefer the fuller body text when it's genuinely longer than the
-    // (possibly truncated) meta description - that's the best signal we
-    // have that the meta tag was cut short at the source.
-    richText:
-      bodyText.length > metaDescription.trim().length
-        ? bodyText.slice(0, 8000)
-        : metaDescription.trim() || bodyText.slice(0, 8000),
+    // IMPORTANT: prefer the short, clean meta description. It's what
+    // pump.fun writes specifically for link-preview purposes, and while
+    // it's sometimes truncated, it's reliably real bounty content. The
+    // full page body was tried as a "fuller" alternative but turned out
+    // to often contain site navigation and age-verification popup text
+    // instead of the actual description - worse, not better. Body text
+    // is now only used as a last resort when there's no meta description
+    // at all.
+    richText: metaDescription.trim() || bodyText.slice(0, 8000),
     json: jsonSummary,
   };
 }
