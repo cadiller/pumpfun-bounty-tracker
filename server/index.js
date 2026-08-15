@@ -20,6 +20,7 @@ const {
 } = require("./store");
 const { initTelegram } = require("./telegram");
 const { startPoller, checkOne } = require("./poller");
+const { fetchOpenTasksRaw } = require("./pumpfunApi");
 
 const app = express();
 app.use(express.json());
@@ -201,6 +202,15 @@ app.post("/api/new-bounties/subscribe", (req, res) => {
 app.post("/api/new-bounties/unsubscribe", (req, res) => {
   unsubscribeNewBounties(req.ownerKey);
   res.json({ ok: true });
+});
+
+// TEMPORARY debug route - lets us test the authenticated pump.fun API call
+// straight from a phone browser, no Termux needed. Visit /api/debug/tasks
+// after setting PUMPFUN_COOKIE. Safe to leave up short-term: it never
+// echoes back the cookie itself, only pump.fun's response.
+app.get("/api/debug/tasks", async (req, res) => {
+  const result = await fetchOpenTasksRaw({ limit: 3 });
+  res.json(result);
 });
 
 const port = process.env.PORT || 3000;
