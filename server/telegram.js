@@ -43,8 +43,8 @@ function formatBountyDetail(scraped) {
   if (scraped.splitText) parts.push(`Split: ${scraped.splitText}`);
   parts.push(`Submissions so far: ${scraped.submissionsCount ?? 0}`);
   if (scraped.deadlineText) parts.push(scraped.deadlineText);
-  if (scraped.description) parts.push(`\nDescription:\n${scraped.description.slice(0, 600)}`);
-  if (scraped.deliverables) parts.push(`\nDeliverables:\n${scraped.deliverables.slice(0, 600)}`);
+  if (scraped.description) parts.push(`\nDescription:\n${scraped.description.slice(0, 1200)}`);
+  if (scraped.deliverables) parts.push(`\nDeliverables:\n${scraped.deliverables.slice(0, 1200)}`);
   parts.push(scraped.url);
   return parts.join("\n");
 }

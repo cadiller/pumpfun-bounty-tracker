@@ -51,6 +51,10 @@ async function checkForNewBounties() {
 
     try {
       const scraped = await fetchBountyStatus(id);
+      if (!scraped.title) {
+        console.log(`[poller] skipping ${id} - no title found, likely not a real bounty page`);
+        continue;
+      }
       upsertBounty(scraped);
       if (!subscribers.length) continue;
 

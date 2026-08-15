@@ -89,7 +89,12 @@ function renderCard(bounty) {
   titleBtn.textContent = bounty.title || bounty.id;
   titleBtn.addEventListener("click", () => openDetail(bounty.id));
 
-  node.querySelector(".ext-link").href = bounty.url;
+  const extLink1 = node.querySelector(".ext-link");
+  if (bounty.url && /^https?:\/\//.test(bounty.url)) {
+    extLink1.href = bounty.url;
+  } else {
+    extLink1.style.display = "none";
+  }
 
   const badge = node.querySelector(".badge");
   badge.textContent = BADGE_LABEL[group];
@@ -161,7 +166,12 @@ function renderDiscoverCard(bounty) {
   titleBtn.textContent = bounty.title || bounty.id;
   titleBtn.addEventListener("click", () => openDetail(bounty.id, bounty));
 
-  node.querySelector(".ext-link").href = bounty.url;
+  const extLink2 = node.querySelector(".ext-link");
+  if (bounty.url && /^https?:\/\//.test(bounty.url)) {
+    extLink2.href = bounty.url;
+  } else {
+    extLink2.style.display = "none";
+  }
 
   const badge = node.querySelector(".badge");
   badge.textContent = BADGE_LABEL[group];
@@ -289,7 +299,17 @@ function fillModal(bounty) {
     modalDeliverables.hidden = true;
   }
 
-  modalOpen.href = bounty.url;
+  if (bounty.url && /^https?:\/\//.test(bounty.url)) {
+    modalOpen.href = bounty.url;
+    modalOpen.style.display = "";
+    modalOpen.textContent = "Open ↗";
+  } else {
+    // Guard against a missing/malformed URL (e.g. a bad discovery match) -
+    // previously this silently fell back to linking the current page,
+    // which looked like "Open" was doing nothing / redirecting to itself.
+    modalOpen.removeAttribute("href");
+    modalOpen.style.display = "none";
+  }
 }
 
 document.getElementById("modal-close").addEventListener("click", () => { modalBackdrop.hidden = true; });

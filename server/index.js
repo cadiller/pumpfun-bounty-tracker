@@ -23,7 +23,16 @@ const { startPoller, checkOne } = require("./poller");
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Telegram's in-app WebView can aggressively cache static assets, which
+// previously caused it to keep showing an old deployed version even after
+// a fresh Railway build went out. Force it to always re-check.
+app.use(
+  express.static(path.join(__dirname, "..", "public"), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res) => res.setHeader("Cache-Control", "no-store, must-revalidate"),
+  })
+);
 
 // --- identify who's asking -------------------------------------------------
 //

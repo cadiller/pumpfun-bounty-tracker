@@ -3,19 +3,15 @@
  * the bounty page itself (https://pump.fun/go/<id>) and works out status
  * from whatever text/JSON it ships in the HTML.
  *
- * Reliability notes (read before tweaking the regexes below):
- *  - The og:description meta tag pump.fun writes for link-preview purposes
- *    is the most trustworthy source - it's a clean, pre-written summary.
- *  - Raw page body text is NOT trusted for stage detection anymore. Static
- *    UI labels like "TIME LEFT" appear on every bounty page regardless of
- *    whether it's actually still live, so a loose scan of the whole body
- *    text produced false "live" results on already-ended bounties. Stage
- *    detection now only trusts the clean summary text, falling back to a
- *    status-derived guess (not a body-text scan) when the summary alone
- *    isn't specific enough.
- *  - <script>/<style> tags are stripped before any text extraction, since
- *    pump.fun's Next.js app embeds raw serialized data in inline <script>
- *    tags that would otherwise leak into "description" text as gibberish.
+ * TWO TEXT SOURCES, used for different jobs:
+ *  - `shortText`  = the og:description meta tag. Clean, but pump.fun
+ *    deliberately truncates it (for link-preview purposes), so it's NOT
+ *    reliable for getting the FULL description/deliverables text.
+ *  - `richText`   = the full page body, with <script>/<style> stripped.
+ *    Longer and more complete - this is now the primary source for
+ *    description/deliverables/submissions/split extraction. shortText is
+ *    still used first for stage/status keyword matching since it's less
+ *    noisy, falling back to richText if shortText doesn't decide anything.
  */
 
 const cheerio = require("cheerio");
@@ -73,47 +69,39 @@ function extractSummary(html) {
     "";
   const title = $('meta[property="og:title"]').attr("content") || $("title").first().text() || "";
 
-  // Strip script/style/noscript BEFORE reading any body text, or their raw
-  // (often JSON-ish) contents leak straight into what we treat as prose.
   $("script, style, noscript").remove();
   const bodyText = $("body").text().replace(/\s+/g, " ").trim();
 
   return {
     title: (jsonSummary && jsonSummary.title) || title.trim(),
     rewardText: jsonSummary && jsonSummary.rewardText,
-    text: metaDescription.trim() || bodyText.slice(0, 4000),
-    bodyText,
+    shortText: metaDescription.trim(),
+    // Prefer the fuller body text when it's genuinely longer than the
+    // (possibly truncated) meta description - that's the best signal we
+    // have that the meta tag was cut short at the source.
+    richText:
+      bodyText.length > metaDescription.trim().length
+        ? bodyText.slice(0, 8000)
+        : metaDescription.trim() || bodyText.slice(0, 8000),
     json: jsonSummary,
   };
 }
 
 /** Coarse status: open | ended | ruled | paid | closed | unknown */
-function classifyStatus({ text, json }) {
+function classifyStatus(text) {
   const t = (text || "").toLowerCase();
-
-  if (json && json.status) {
-    const s = String(json.status).toLowerCase();
-    if (/paid/.test(s)) return "paid";
-    if (/rul/.test(s)) return "ruled";
-    if (/clos|end|complet|expir/.test(s)) return "closed";
-    if (/open|active|live/.test(s)) return "open";
-  }
-
   if (/paid out|payout receipts|reward was paid/.test(t)) return "paid";
   if (/full ruling|ruling, evidence/.test(t)) return "ruled";
   if (/this bounty is closed|bounty has ended|bounty closed/.test(t)) return "closed";
   if (/no winner|expired without a winner|no valid submissions/.test(t)) return "closed";
-  // Requires an actual digit next to a time unit - NOT just the bare word
-  // "left", which also appears in the static "TIME LEFT" heading on every
-  // bounty page regardless of whether it's actually still live.
-  if (/\bends?\s+in\s+\d|\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?)\s*(?:left|remaining)/i.test(t))
+  if (
+    /\bends?\s+in\s+\d|\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?)\s*(?:left|remaining)/i.test(t) ||
+    /\bis\s+live\b|\blive\s+now\b|\bbounty\s+is\s+live\b/i.test(t)
+  )
     return "open";
-
   return "unknown";
 }
 
-// Ordered MOST-ADVANCED first. Only scanned against the clean summary text
-// (never the raw body), so static page labels can't cause false matches.
 const STAGE_PATTERNS = [
   ["paid", /paid out to|payout receipt|rewards? claimed/i],
   ["claimable", /rewards? claimable on-?chain|claimable now/i],
@@ -122,13 +110,18 @@ const STAGE_PATTERNS = [
   ["decision_posted", /initial decision posted|winners? picked|decision final/i],
   ["submissions_closed", /submissions closed/i],
   ["closed_no_winner", /no valid submissions|expired without a winner|no winner/i],
-  ["live", /\bends?\s+in\s+\d|\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?)\s*(?:left|remaining)/i],
+  [
+    "live",
+    /\bends?\s+in\s+\d|\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?)\s*(?:left|remaining)|\bis\s+live\b|\blive\s+now\b|\bbounty\s+is\s+live\b/i,
+  ],
 ];
 
-function classifyStage(cleanText, coarseStatus) {
-  const t = cleanText || "";
-  for (const [stage, pattern] of STAGE_PATTERNS) {
-    if (pattern.test(t)) return stage;
+function classifyStage(shortText, richText, coarseStatus) {
+  for (const source of [shortText, richText]) {
+    if (!source) continue;
+    for (const [stage, pattern] of STAGE_PATTERNS) {
+      if (pattern.test(source)) return stage;
+    }
   }
   const fallback = {
     open: "live",
@@ -141,9 +134,8 @@ function classifyStage(cleanText, coarseStatus) {
   return fallback[coarseStatus] || "unknown";
 }
 
-/** Once a bounty is resolved: 'paid' | 'refunded' | null (not resolved yet) */
-function classifyOutcome(cleanText, stage) {
-  const t = cleanText || "";
+function classifyOutcome(text, stage) {
+  const t = text || "";
   if (/refund(ed)?\s*(to creator)?/i.test(t)) return "refunded";
   if (/paid out to|payout receipt/i.test(t)) return "paid";
   if (stage === "closed_no_winner") return "refunded";
@@ -151,16 +143,29 @@ function classifyOutcome(cleanText, stage) {
   return null;
 }
 
+// pump.fun's short preview text starts with something like
+// "Reward: $120.98 • Ends: closed " or "Reward: $29.66 • Ends in 12d 15h ".
+// We already surface reward/deadline as their own fields, so strip this
+// exact prefix pattern out of the description to avoid showing it twice.
+function stripSummaryPrefix(text) {
+  if (!text) return text;
+  return text
+    .replace(
+      /^\s*reward:\s*\$[\d,.]+\s*•?\s*ends?:?\s*(?:closed|in\s+\d+d(?:\s*\d+h)?|in\s+\d+h)?\s*•?\s*/i,
+      ""
+    )
+    .trim();
+}
+
 /**
- * Splits the clean summary into a Description and a Deliverables section,
- * using pump.fun's own "Deliverables" heading as the split point when
- * present. Falls back to putting everything under description.
+ * Splits into Description and Deliverables using pump.fun's own
+ * "Deliverables" heading as the split point when present.
  */
-function splitDescription(cleanText) {
-  const t = (cleanText || "").trim();
+function splitDescription(text) {
+  const t = stripSummaryPrefix((text || "").trim());
   if (!t) return { description: null, deliverables: null };
   const m = t.match(/deliverables?\s*:?\s*/i);
-  if (!m) return { description: t, deliverables: null };
+  if (!m) return { description: t || null, deliverables: null };
   const idx = m.index;
   return {
     description: t.slice(0, idx).trim() || null,
@@ -168,21 +173,17 @@ function splitDescription(cleanText) {
   };
 }
 
-// Broad set of ways pump.fun bounties phrase how the reward pool is split.
-// We keep the raw matched sentence (splitText) rather than trying to fully
-// normalize it, since showing the real wording is more trustworthy than a
-// guessed paraphrase.
 const SPLIT_PATTERNS = [
-  /first\s+\d+\s+valid\s+submissions?[^.]*/i,
-  /split\s+(?:between|among)\s+\d+[^.]*/i,
-  /shared\s+(?:between|among|by)\s+\d+[^.]*/i,
-  /up to\s+\d+\s+winners?[^.]*/i,
-  /\d+\s*winners?\s*(?:will be\s*)?(?:picked|selected|chosen)[^.]*/i,
-  /paid out to\s+\d+\s+winners?[^.]*/i,
+  /first\s+\d+\s+valid\s+submissions?[^.•]*/i,
+  /split\s+(?:between|among)\s+\d+[^.•]*/i,
+  /shared\s+(?:between|among|by)\s+\d+[^.•]*/i,
+  /up to\s+\d+\s+winners?[^.•]*/i,
+  /\d+\s*winners?\s*(?:will be\s*)?(?:picked|selected|chosen)[^.•]*/i,
+  /paid out to\s+\d+\s+winners?[^.•]*/i,
 ];
 
-function extractSplitInfo(cleanText) {
-  const t = cleanText || "";
+function extractSplitInfo(text) {
+  const t = text || "";
   for (const pattern of SPLIT_PATTERNS) {
     const m = t.match(pattern);
     if (m) {
@@ -193,23 +194,35 @@ function extractSplitInfo(cleanText) {
   return { splitText: null, winnersCount: null };
 }
 
-/** Best-effort extraction of $ reward and live submissions count. */
-function extractRichFields(cleanText) {
-  const t = cleanText || "";
+// Widened net for submissions phrasing. NOTE: for a still-LIVE bounty this
+// count likely only exists in JS-rendered UI a plain fetch can't see, so 0
+// may be a real ceiling here rather than a bug - see SKILL note in README.
+const SUBMISSIONS_PATTERNS = [
+  /(\d+)\s*(?:entries|submissions)\b/i,
+  /(\d+)\s*(?:people\s+)?(?:have\s+)?submitted\b/i,
+  /submissions?\s*(?:so far)?\s*:\s*(\d+)/i,
+];
+
+function extractRichFields(text) {
+  const t = text || "";
   const usdMatch = t.match(/\$([\d,]+\.\d{2})/);
-  const submissionsMatch = t.match(/(\d+)\s*(entries|submissions)/i);
+  let submissionsCount = 0;
+  for (const pattern of SUBMISSIONS_PATTERNS) {
+    const m = t.match(pattern);
+    if (m) {
+      submissionsCount = parseInt(m[1], 10);
+      break;
+    }
+  }
   return {
     rewardUsd: usdMatch ? parseFloat(usdMatch[1].replace(/,/g, "")) : null,
-    // Explicitly 0 rather than null when we can't find a count - a bounty
-    // genuinely can have 0 submissions, and the UI should show that as 0,
-    // not as a blank/unknown state.
-    submissionsCount: submissionsMatch ? parseInt(submissionsMatch[1], 10) : 0,
+    submissionsCount,
   };
 }
 
 function extractDeadlineText(text) {
   if (!text) return null;
-  const m = text.match(/(\d+\s*(?:day|hour|minute|hr|min)s?\s*left)|(\bends?\s+in\s+\d[^.]*)/i);
+  const m = text.match(/(\d+\s*(?:day|hour|minute|hr|min)s?\s*left)|(\bends?\s+in\s+\d[^.•]*)/i);
   return m ? m[0].trim() : null;
 }
 
@@ -232,20 +245,21 @@ async function fetchBountyStatus(idOrUrl) {
   if (!res.ok) throw new Error(`pump.fun returned HTTP ${res.status} for ${url}`);
 
   const html = await res.text();
-  const summary = extractSummary(html);
-  const status = classifyStatus(summary);
-  const stage = classifyStage(summary.text, status);
-  const outcome = classifyOutcome(summary.text, stage);
-  const rich = extractRichFields(summary.text);
-  const split = extractSplitInfo(summary.text);
-  const { description, deliverables } = splitDescription(summary.text);
-  const deadlineText = extractDeadlineText(summary.text);
+  const { title, rewardText, shortText, richText } = extractSummary(html);
+
+  const status = classifyStatus(shortText || richText);
+  const stage = classifyStage(shortText, richText, status);
+  const outcome = classifyOutcome(shortText || richText, stage);
+  const rich = extractRichFields(richText);
+  const split = extractSplitInfo(richText);
+  const { description, deliverables } = splitDescription(richText);
+  const deadlineText = extractDeadlineText(shortText || richText);
 
   return {
     id,
     url,
-    title: summary.title || null,
-    rewardText: summary.rewardText || null,
+    title: title || null,
+    rewardText: rewardText || null,
     rewardUsd: rich.rewardUsd,
     winnersCount: split.winnersCount,
     splitText: split.splitText,
@@ -253,7 +267,7 @@ async function fetchBountyStatus(idOrUrl) {
     status,
     stage,
     outcome,
-    summary: summary.text,
+    summary: shortText || richText.slice(0, 400),
     description,
     deliverables,
     deadlineText,
@@ -264,8 +278,9 @@ async function fetchBountyStatus(idOrUrl) {
  * EXPERIMENTAL - discovering brand new bounties as they're published.
  * pump.fun's own bounty-listing API requires an authenticated JWT tied to a
  * logged-in wallet session, which this app doesn't have. This tries the
- * public go.pump.fun page as a best-effort fallback and returns an empty
- * list if it can't find anything - it will NOT crash the poller.
+ * public go.pump.fun page as a best-effort fallback. Entries that don't
+ * resolve to a real title are skipped rather than stored as blank/garbage
+ * rows (this is what previously caused broken-looking Discover cards).
  */
 async function discoverNewBounties() {
   try {
