@@ -94,7 +94,7 @@ function classifyStatus(text) {
   const t = (text || "").toLowerCase();
   if (/paid out|payout receipts|reward was paid/.test(t)) return "paid";
   if (/full ruling|ruling, evidence/.test(t)) return "ruled";
-  if (/this bounty is closed|bounty has ended|bounty closed/.test(t)) return "closed";
+  if (/this bounty is closed|bounty has ended|bounty closed|ends:?\s*closed/.test(t)) return "closed";
   if (/no winner|expired without a winner|no valid submissions/.test(t)) return "closed";
   if (
     /\bends?\s+in\s+\d|\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?)\s*(?:left|remaining)/i.test(t) ||
