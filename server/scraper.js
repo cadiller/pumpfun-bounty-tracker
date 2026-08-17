@@ -122,26 +122,37 @@ function classifyStage(shortText, richText, coarseStatus) {
   for (const source of [shortText, richText]) {
     if (!source) continue;
     for (const [stage, pattern] of STAGE_PATTERNS) {
-      if (pattern.test(source)) return stage;
+      if (pattern.test(source)) return { stage, confident: true };
     }
   }
+  // No explicit phrase found - we only know the deadline has passed, NOT
+  // which specific post-deadline phase it's actually in (could be awaiting
+  // decision, in dispute, finalizing payout, or genuinely no-winner - the
+  // short summary text often just doesn't say). "submissions_closed" is
+  // the least presumptuous guess: it says "this is over" without claiming
+  // a specific outcome. Marked not-confident so classifyOutcome below
+  // won't treat this guess as evidence of anything.
   const fallback = {
     open: "live",
     ended: "submissions_closed",
     ruled: "finalizing_payout",
     paid: "paid",
-    closed: "closed_no_winner",
+    closed: "submissions_closed",
     unknown: "unknown",
   };
-  return fallback[coarseStatus] || "unknown";
+  return { stage: fallback[coarseStatus] || "unknown", confident: false };
 }
 
-function classifyOutcome(text, stage) {
+function classifyOutcome(text, stage, confident) {
   const t = text || "";
   if (/refund(ed)?\s*(to creator)?/i.test(t)) return "refunded";
   if (/paid out to|payout receipt/i.test(t)) return "paid";
-  if (stage === "closed_no_winner") return "refunded";
-  if (stage === "claimable" || stage === "paid") return "paid";
+  // Only trust stage-derived outcome when that stage was itself explicitly
+  // confirmed by matching real text on the page - never from a fallback
+  // guess. Claiming "refunded" or "paid" without real evidence would be a
+  // false statement about someone's money.
+  if (confident && stage === "closed_no_winner") return "refunded";
+  if (confident && (stage === "claimable" || stage === "paid")) return "paid";
   return null;
 }
 
@@ -250,8 +261,8 @@ async function fetchBountyStatus(idOrUrl) {
   const { title, rewardText, shortText, richText } = extractSummary(html);
 
   const status = classifyStatus(shortText || richText);
-  const stage = classifyStage(shortText, richText, status);
-  const outcome = classifyOutcome(shortText || richText, stage);
+  const { stage, confident } = classifyStage(shortText, richText, status);
+  const outcome = classifyOutcome(shortText || richText, stage, confident);
   const rich = extractRichFields(richText);
   const split = extractSplitInfo(richText);
   const { description, deliverables } = splitDescription(richText);
